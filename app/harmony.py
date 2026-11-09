@@ -20,9 +20,31 @@ from .landmarks import SYMMETRIC_PAIRS, FaceLandmarks
 
 PHI = 1.6180339887  # golden ratio
 
+# MediaPipe's top landmark (idx 10) sits at mid-forehead, not the hairline
+# (trichion). We extrapolate upward along the brow->landmark-10 direction to
+# estimate the true hairline. 1.6 is calibrated so a typical frontal selfie
+# yields realistic facial-thirds ratios instead of a truncated upper third.
+HAIRLINE_SCALE = 1.6
+
 
 def _dist(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.linalg.norm(a - b))
+
+
+def _brow_midpoint(face: FaceLandmarks) -> np.ndarray:
+    return (face.named("left_brow") + face.named("right_brow")) / 2
+
+
+def estimate_hairline(face: FaceLandmarks) -> np.ndarray:
+    """Estimate the trichion (hairline) point from the mesh.
+
+    Landmark 10 is roughly mid-forehead, so we extend the brow->10 vector
+    beyond landmark 10 by ``HAIRLINE_SCALE`` to approximate the hairline. This
+    is an estimate: true hairline position is not recoverable from the mesh.
+    """
+    top = face.named("face_top")  # idx 10, mid-forehead
+    brow = _brow_midpoint(face)
+    return brow + (top - brow) * HAIRLINE_SCALE
 
 
 def _closeness_score(measured: float, ideal: float, tolerance: float) -> float:
@@ -88,13 +110,14 @@ def proportions(face: FaceLandmarks) -> Dict[str, Dict]:
     """Measure classical facial proportions against reference canons."""
     out: Dict[str, Dict] = {}
 
-    top = face.named("face_top")
-    brow = (face.named("left_brow") + face.named("right_brow")) / 2
+    hairline = estimate_hairline(face)
+    brow = _brow_midpoint(face)
     nose_bottom = face.named("nose_bottom")
     chin = face.named("chin")
 
     # --- Facial thirds: upper / middle / lower should be roughly equal (1:1:1).
-    upper = _dist(top, brow)
+    # Upper third runs from the *estimated* hairline, not landmark 10.
+    upper = _dist(hairline, brow)
     middle = _dist(brow, nose_bottom)
     lower = _dist(nose_bottom, chin)
     total = upper + middle + lower
@@ -105,7 +128,9 @@ def proportions(face: FaceLandmarks) -> Dict[str, Dict]:
         out["facial_thirds"] = {
             "measured": [round(t, 3) for t in thirds],
             "ideal": [0.333, 0.333, 0.333],
-            "score": max(0.0, round((1.0 - dev / 0.12) * 100, 1)),
+            # Mean deviation of 0.18 per third maps to 0 (calibrated on real faces).
+            "score": max(0.0, round((1.0 - dev / 0.18) * 100, 1)),
+            "note": "upper third uses an estimated hairline",
         }
 
     # --- Facial fifths: face width should be ~5 eye-widths.
@@ -126,7 +151,9 @@ def proportions(face: FaceLandmarks) -> Dict[str, Dict]:
         out["eye_spacing"] = {
             "measured": round(ratio, 2),
             "ideal": 1.0,
-            "score": _closeness_score(ratio, 1.0, 0.3),
+            # Real faces commonly range ~0.9-1.3 eye-widths; 0.55 keeps
+            # normal variation out of the "needs attention" band.
+            "score": _closeness_score(ratio, 1.0, 0.55),
         }
 
     # --- Nose-to-mouth width: mouth width ~= 1.618 x nose width (golden ratio).
@@ -140,7 +167,6 @@ def proportions(face: FaceLandmarks) -> Dict[str, Dict]:
             "score": _closeness_score(ratio, PHI, 0.3),
         }
 
-    # --- Lower-third balance: upper lip to lower lip+chin ~= 1:2.
     return out
 
 

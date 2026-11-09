@@ -6,7 +6,7 @@ from typing import Dict
 
 import numpy as np
 
-from . import harmony, skin
+from . import harmony, overlay, skin
 from .landmarks import FaceLandmarks, detect
 
 
@@ -67,6 +67,7 @@ def build(image_bgr: np.ndarray) -> Dict:
         "overall_score": overall,
         "grade": _grade(overall),
         "suggestions": _suggestions(harmony_report, skin_report),
+        "overlay_jpeg_base64": overlay.render(image_bgr, face),
         "disclaimer": (
             "Ayoyo reports geometric and image-based metrics only. Facial-proportion "
             "canons are aesthetic conventions, not measures of worth or health, and "

@@ -16,6 +16,19 @@ Upload a selfie and get a structured report with three layers:
 
 Each metric reports a measured value and a 0–100 score vs. a reference canon.
 
+The report also includes `overlay_jpeg_base64`: a face-cropped image showing the
+478-point mesh, midline, facial-thirds guides, eye/nose/mouth widths and the
+tinted skin regions.
+
+### Calibration notes
+
+- **Hairline is estimated.** MediaPipe's top landmark sits mid-forehead, so the
+  upper facial third uses an extrapolated hairline (`HAIRLINE_SCALE` in
+  `app/harmony.py`). Hair covering the forehead will skew this metric.
+- **Tolerances** (the deviation at which a score hits 0) are tuned so normal
+  facial variation scores in the fair–good range rather than near 0. They are
+  constants in `app/harmony.py` and easy to adjust.
+
 ## Licensing
 
 Every dependency is free **and** commercial-use friendly (Apache-2.0 / BSD /
@@ -57,6 +70,7 @@ app/
   landmarks.py   MediaPipe Face Mesh wrapper (478 pts, named indices)
   harmony.py     symmetry + proportion geometry
   skin.py        OpenCV skin metrics per face region
+  overlay.py     draws the mesh + measurement guides onto the image
   report.py      assembles the combined report + suggestions
   main.py        FastAPI app (/, /health, /api/analyze)
 static/
