@@ -47,14 +47,24 @@ SYMMETRIC_PAIRS = [
     (58, 288),    # jaw
 ]
 
-# Approximate region polygons (lists of landmark indices) for skin sampling.
+# Skin-sampling regions, as landmark index sets. Each region is the convex hull
+# of its points, so point order does not matter. Regions avoid eyes, brows,
+# nostrils and lips; masks are eroded further before measurement.
 SKIN_REGIONS = {
-    "forehead": [10, 338, 297, 332, 284, 251, 109, 67, 103, 54, 21, 71, 9],
-    "left_cheek": [234, 93, 132, 58, 172, 136, 150, 149, 176, 148, 152, 50, 101, 118, 117, 111, 116],
-    "right_cheek": [454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 280, 330, 347, 346, 340, 345],
-    "nose": [168, 193, 122, 196, 3, 51, 45, 44, 1, 274, 275, 281, 248, 419, 351, 417],
-    "chin": [152, 148, 176, 149, 150, 169, 170, 140, 171, 175, 396, 395, 369, 400, 378, 377],
+    "forehead": [10, 109, 67, 103, 104, 69, 108, 151, 337, 299, 333, 332, 297, 338, 9],
+    "left_cheek": [50, 101, 118, 117, 111, 116, 123, 147, 187, 205, 207],
+    "right_cheek": [280, 330, 347, 346, 340, 345, 352, 376, 411, 425, 427],
+    "nose": [168, 6, 197, 195, 5, 4, 1, 45, 275],
+    "chin": [200, 199, 175, 152, 148, 377, 176, 400, 208, 428, 201, 421],
 }
+
+
+def region_hull(points_xy: np.ndarray, name: str) -> np.ndarray:
+    """Convex hull (int32 polygon) of a skin region, from ``(N, 2)`` points."""
+    import cv2
+
+    pts = np.round(points_xy[SKIN_REGIONS[name]]).astype(np.int32)
+    return cv2.convexHull(pts)
 
 
 class NoFaceDetected(Exception):

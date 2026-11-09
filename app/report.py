@@ -10,6 +10,16 @@ from . import harmony, overlay, skin
 from .landmarks import FaceLandmarks, detect
 
 
+# "left"/"right" follow the photo (MediaPipe's image-space sides), not the person's.
+REGION_NAMES = {
+    "forehead": "forehead",
+    "left_cheek": "cheek on the left of the photo",
+    "right_cheek": "cheek on the right of the photo",
+    "nose": "nose",
+    "chin": "chin",
+}
+
+
 def _grade(score: float) -> str:
     if score >= 85:
         return "excellent"
@@ -32,12 +42,30 @@ def _suggestions(harmony_report: Dict, skin_report: Dict) -> list[str]:
         )
 
     skin_scores = skin_report.get("scores", {})
-    if skin_scores.get("redness", 100) < 60:
-        tips.append("Some redness detected — even, soft lighting reduces this in photos.")
-    if skin_scores.get("smoothness", 100) < 60:
-        tips.append("Skin texture reads high — this is very sensitive to harsh lighting.")
-    if skin_scores.get("evenness", 100) < 60:
-        tips.append("Uneven tone across regions — often a lighting artifact rather than skin.")
+    regions = {n: r for n, r in skin_report.get("regions", {}).items() if r.get("reliable")}
+
+    def worst(metric: str) -> str:
+        if not regions:
+            return "face"
+        name = max(regions, key=lambda n: regions[n][metric])
+        return REGION_NAMES.get(name, name)
+
+    skin_tips = {
+        "redness": "Some areas look redder than the rest of your skin, most on the {}.",
+        "smoothness": "Fine texture is most visible on the {}.",
+        "evenness": "Skin tone is least even on the {}.",
+        "clarity": "Spots or marks are most noticeable on the {}.",
+    }
+    for metric, text in skin_tips.items():
+        if skin_scores.get(metric, 100) < 60:
+            tips.append(text.format(worst(metric)))
+
+    if skin_report.get("low_resolution"):
+        tips.append("The face is small in this photo, so skin results are less reliable — try a closer shot.")
+    if skin_report.get("overexposed"):
+        tips.append("Parts of the skin are blown out by bright light, so skin results are less reliable — try softer lighting.")
+    if skin_report.get("overall_skin") is None:
+        tips.append("Not enough clear skin was visible to analyze — try a photo without hair or glare covering the face.")
 
     if not tips:
         tips.append("All metrics look balanced. Remember these are geometric guides, not judgments.")
@@ -54,10 +82,8 @@ def build(image_bgr: np.ndarray) -> Dict:
     harmony_report = harmony.analyze(face)
     skin_report = skin.analyze(image_bgr, face)
 
-    overall = round(
-        float(np.mean([harmony_report["overall_harmony"], skin_report["overall_skin"]])),
-        1,
-    )
+    parts = [harmony_report["overall_harmony"], skin_report["overall_skin"]]
+    overall = round(float(np.mean([p for p in parts if p is not None])), 1)
 
     return {
         "image": {"width": face.width, "height": face.height},

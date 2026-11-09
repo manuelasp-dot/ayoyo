@@ -18,7 +18,7 @@ import cv2
 import numpy as np
 
 from .harmony import _brow_midpoint, estimate_hairline
-from .landmarks import SKIN_REGIONS, FaceLandmarks
+from .landmarks import SKIN_REGIONS, FaceLandmarks, region_hull
 
 # BGR colours
 REGION_COLOURS = {
@@ -39,11 +39,16 @@ def _pt(p: np.ndarray) -> tuple[int, int]:
     return int(round(p[0])), int(round(p[1]))
 
 
-def _hline(img, y: float, x0: float, x1: float, colour, thickness: int, label: str | None = None):
+def _hline(img, y: float, x0: float, x1: float, colour, thickness: int, label: str | None = None) -> int:
+    """Draw a horizontal guide; return the x pixel where its label ends."""
     cv2.line(img, (int(x0), int(y)), (int(x1), int(y)), colour, thickness, cv2.LINE_AA)
-    if label:
-        cv2.putText(img, label, (int(x1) + 4, int(y) + 4), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.4 * thickness, colour, max(1, thickness - 1), cv2.LINE_AA)
+    if not label:
+        return int(x1)
+    scale, weight = 0.4 * thickness, max(1, thickness - 1)
+    cv2.putText(img, label, (int(x1) + 4, int(y) + 4), cv2.FONT_HERSHEY_SIMPLEX,
+                scale, colour, weight, cv2.LINE_AA)
+    (text_w, _), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, scale, weight)
+    return int(x1) + 4 + text_w
 
 
 def render(image_bgr: np.ndarray, face: FaceLandmarks, max_width: int = 720) -> str:
@@ -54,8 +59,8 @@ def render(image_bgr: np.ndarray, face: FaceLandmarks, max_width: int = 720) -> 
 
     # Tinted skin regions.
     tint = img.copy()
-    for name, indices in SKIN_REGIONS.items():
-        poly = np.array([_pt(face.xy(i)) for i in indices], dtype=np.int32)
+    for name in SKIN_REGIONS:
+        poly = region_hull(face.points[:, :2], name)
         cv2.fillPoly(tint, [poly], REGION_COLOURS.get(name, (200, 200, 200)))
     cv2.addWeighted(tint, 0.22, img, 0.78, 0, img)
 
@@ -73,13 +78,15 @@ def render(image_bgr: np.ndarray, face: FaceLandmarks, max_width: int = 720) -> 
     x1 = face.named("face_right")[0]
     brow = _brow_midpoint(face)
     nose_bottom = face.named("nose_bottom")
-    for y, label in (
-        (hairline[1], "hairline (est.)"),
-        (brow[1], "brow"),
-        (nose_bottom[1], "nose base"),
-        (chin[1], "chin"),
-    ):
+    label_right = max(
         _hline(img, y, x0, x1, THIRDS, t, label)
+        for y, label in (
+            (hairline[1], "hairline (est.)"),
+            (brow[1], "brow"),
+            (nose_bottom[1], "nose base"),
+            (chin[1], "chin"),
+        )
+    )
 
     # Eye width + interocular.
     for a, b in (("left_eye_outer", "left_eye_inner"),
@@ -97,7 +104,7 @@ def render(image_bgr: np.ndarray, face: FaceLandmarks, max_width: int = 720) -> 
     ys = np.append(face.points[:, 1], hairline[1])
     fw, fh = xs.max() - xs.min(), ys.max() - ys.min()
     left = int(max(0, xs.min() - 0.35 * fw))
-    right = int(min(face.width, xs.max() + 0.75 * fw))  # room for labels
+    right = int(min(face.width, max(xs.max() + 0.35 * fw, label_right + 8)))
     top = int(max(0, ys.min() - 0.15 * fh))
     bottom = int(min(face.height, ys.max() + 0.15 * fh))
     img = img[top:bottom, left:right]
