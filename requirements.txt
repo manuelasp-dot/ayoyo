@@ -1,0 +1,9 @@
+# Ayoyo — free, open-source facial analysis API
+# All core dependencies are permissively licensed (Apache-2.0 / BSD / MIT) and free for commercial use.
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+python-multipart==0.0.17
+numpy==1.26.4
+opencv-python-headless==4.10.0.84
+mediapipe==0.10.18
+pydantic==2.9.2

@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ayoyo — Facial Analysis</title>
+  <style>
+    :root {
+      --bg: #0f1115; --panel: #181b22; --fg: #e8eaed; --muted: #9aa0aa;
+      --accent: #6ea8fe; --good: #4ade80; --fair: #fbbf24; --bad: #f87171;
+      --border: #272b33;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font: 15px/1.5 system-ui, sans-serif; background: var(--bg);
+      color: var(--fg); padding: 24px 16px;
+    }
+    .wrap { max-width: 720px; margin: 0 auto; }
+    h1 { font-size: 24px; margin: 0 0 4px; }
+    p.sub { color: var(--muted); margin: 0 0 24px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 20px; margin-bottom: 16px;
+    }
+    .drop {
+      border: 2px dashed var(--border); border-radius: 12px; padding: 32px;
+      text-align: center; cursor: pointer; transition: border-color .15s;
+    }
+    .drop:hover { border-color: var(--accent); }
+    input[type=file] { display: none; }
+    button {
+      background: var(--accent); color: #0b0d10; border: 0; border-radius: 8px;
+      padding: 10px 18px; font-weight: 600; cursor: pointer; margin-top: 12px;
+    }
+    button:disabled { opacity: .5; cursor: default; }
+    .score-big { font-size: 48px; font-weight: 700; }
+    .grade { color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-size: 12px; }
+    .bar { background: #0b0d10; border-radius: 6px; height: 8px; overflow: hidden; margin: 4px 0 12px; }
+    .bar > span { display: block; height: 100%; }
+    .metric { margin-bottom: 10px; }
+    .metric .label { display: flex; justify-content: space-between; font-size: 13px; }
+    .tips li { color: var(--muted); margin-bottom: 6px; }
+    .disclaimer { color: var(--muted); font-size: 12px; margin-top: 8px; }
+    .err { color: var(--bad); }
+    .hidden { display: none; }
+    canvas { max-width: 100%; border-radius: 8px; border: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Ayoyo</h1>
+    <p class="sub">Free, open-source facial harmony &amp; skin analysis — 100% in-house, no cloud API.</p>
+
+    <div class="card">
+      <label class="drop" id="drop">
+        <input type="file" id="file" accept="image/*" />
+        <div id="dropText">Click or drop a straight-on, well-lit selfie</div>
+      </label>
+      <div style="text-align:center">
+        <button id="go" disabled>Analyze</button>
+      </div>
+    </div>
+
+    <div id="error" class="card err hidden"></div>
+
+    <div id="results" class="hidden">
+      <div class="card" style="text-align:center">
+        <div class="score-big" id="overall">—</div>
+        <div class="grade" id="grade"></div>
+      </div>
+      <div class="card" style="text-align:center">
+        <img id="overlay" alt="Face mesh and measurement overlay" style="max-width:100%;border-radius:8px;border:1px solid var(--border)" />
+        <p class="disclaimer">Dots: 478-point mesh · white: midline · yellow: facial thirds · green: eyes · pink: nose &amp; mouth · tints: skin regions</p>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0">Harmony</h3>
+        <div id="harmony"></div>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0">Skin</h3>
+        <div id="skin"></div>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0">Suggestions</h3>
+        <ul class="tips" id="tips"></ul>
+        <p class="disclaimer" id="disclaimer"></p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById('file');
+    const dropText = document.getElementById('dropText');
+    const goBtn = document.getElementById('go');
+    const errBox = document.getElementById('error');
+    const results = document.getElementById('results');
+    let selected = null;
+
+    fileInput.addEventListener('change', (e) => {
+      selected = e.target.files[0] || null;
+      dropText.textContent = selected ? selected.name : 'Click or drop a selfie';
+      goBtn.disabled = !selected;
+    });
+
+    function color(score) {
+      if (score >= 70) return 'var(--good)';
+      if (score >= 50) return 'var(--fair)';
+      return 'var(--bad)';
+    }
+
+    function bar(label, score) {
+      return `<div class="metric">
+        <div class="label"><span>${label}</span><span>${score}</span></div>
+        <div class="bar"><span style="width:${score}%;background:${color(score)}"></span></div>
+      </div>`;
+    }
+
+    goBtn.addEventListener('click', async () => {
+      if (!selected) return;
+      errBox.classList.add('hidden');
+      results.classList.add('hidden');
+      goBtn.disabled = true; goBtn.textContent = 'Analyzing…';
+
+      const form = new FormData();
+      form.append('image', selected);
+      try {
+        const res = await fetch('/api/analyze', { method: 'POST', body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Analysis failed');
+        render(data);
+      } catch (err) {
+        errBox.textContent = err.message;
+        errBox.classList.remove('hidden');
+      } finally {
+        goBtn.disabled = false; goBtn.textContent = 'Analyze';
+      }
+    });
+
+    function render(d) {
+      document.getElementById('overall').textContent = d.overall_score;
+      document.getElementById('overall').style.color = color(d.overall_score);
+      document.getElementById('grade').textContent = d.grade;
+      document.getElementById('overlay').src = 'data:image/jpeg;base64,' + d.overlay_jpeg_base64;
+
+      let h = bar('Symmetry', d.harmony.symmetry.score);
+      for (const [k, v] of Object.entries(d.harmony.proportions)) {
+        h += bar(k.replace(/_/g, ' '), v.score);
+      }
+      h += bar('Overall harmony', d.harmony.overall_harmony);
+      document.getElementById('harmony').innerHTML = h;
+
+      let s = '';
+      for (const [k, v] of Object.entries(d.skin.scores)) s += bar(k, v);
+      s += bar('Overall skin', d.skin.overall_skin);
+      document.getElementById('skin').innerHTML = s;
+
+      document.getElementById('tips').innerHTML =
+        d.suggestions.map((t) => `<li>${t}</li>`).join('');
+      document.getElementById('disclaimer').textContent = d.disclaimer;
+      results.classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>
